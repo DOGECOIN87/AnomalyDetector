@@ -51,12 +51,13 @@ class _CameraScreenState extends State<CameraScreen> {
     img.equalize(convertedImage);
 
     // Extract the HSL-S channel
-    final img.Image hslImage = img.hslChannel(convertedImage, channel: img.Channel.luminance);
+    final img.Image hslImage = img.hslChannel(convertedImage, channel: img.Channel.saturation);
 
-    // Apply Temporal Smoothing (this would typically require more code for managing multiple frames)
+    // Apply Temporal Smoothing (if implemented)
     // Example: temporalSmoothing(hslImage);
 
     // Display or further process the resulting image
+    print("Image processed successfully");
   }
 
   img.Image convertCameraImage(CameraImage image) {
