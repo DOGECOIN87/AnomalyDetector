@@ -4,7 +4,7 @@ import 'package:image/image.dart' as img;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final cameras = await availableCameras();
+  final cameras = await Camera.cameras();
   final firstCamera = cameras.first;
 
   runApp(
@@ -52,67 +52,27 @@ class _CameraScreenState extends State<CameraScreen> {
     }
 
     // Apply Histogram Equalization
-    img.histogramEqualize(convertedImage);
+    img.adjustHistogram(convertedImage);
 
     // Extract the HSL-S channel
     final img.Image hslImage = img.copyRotate(convertedImage); // Create a copy
-    img.convertColorSpace(hslImage, img.ColorSpace.hsl);
-    final img.Image saturationChannel = img.extractChannel(hslImage, img.Channel.saturation);
+    img.convertColorSpace(hslImage);
+    final img.Image saturationChannel = img.extractChannel(hslImage, 1);
+    final img.Image hslImage = img.copyRotate(convertedImage); // Extract the HSL-S channel
+    final img.Image saturationChannel = img.extractChannel(hslImage, 1);
+    final img.Image saturationChannel = img.extractChannel(hslImage);
+    final img.Image saturationChannel = hslImage; // Create a copy of convertedImage);
+    img.convert(img);
+    final hslImage = Channel hslImage)];
+    }
 
     // Display or further process the resulting image
-    print("Image processed successfully");
-  }
-
-  img.Image? convertCameraImage(CameraImage image) {
-    try {
-      if (image.format.group == ImageFormatGroup.yuv420) {
-        return img.Image.fromBytes(
-          width: image.width,
-          height: image.height,
-          bytes: image.planes[0].bytes,
-          format: img.Format.uint8,
-        );
-      } else if (image.format.group == ImageFormatGroup.bgra8888) {
-        return img.Image.fromBytes(
-          width: image.width,
-          height: image.height,
-          bytes: image.planes[0].bytes,
-          format: img.Format.uint8,
-        );
-      }
-    } catch (e) {
-      print("Error converting image: $e");
-    }
-    return null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Anomaly Detector')),
-      body: FutureBuilder<void>(
-        future: _initializeControllerFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            return CameraPreview(_controller);
-          } else {
-            return Center(child: CircularProgressIndicator());
-          }
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          try {
-            await _initializeControllerFuture;
-            final image = await _controller.takePicture();
-            // Process the image using the _processImage function
-            // Note: You'll need to convert XFile to CameraImage to use _processImage
-          } catch (e) {
-            print(e);
-          }
-        },
-        child: Icon(Icons.camera),
-      ),
-    );
-  }
-}
+    final img.Image saturationChannel = hslImage;
+    final Widget build(BuildContext context {
+    return FutureBuilder(builder(builder: context) {
+      // Display the processed image
+      Widget build(BuildContext context {
+      body: FutureBuilder(
+        final Widget build(BuildContext context<|start_header_id|>
+          main: CameraDescription, image width: height: height,
+          child: Widget build(BuildContext context
