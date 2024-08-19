@@ -45,29 +45,45 @@ class _CameraScreenState extends State<CameraScreen> {
 
   void _processImage(CameraImage image) {
     // Convert CameraImage to a format that can be processed
-    final img.Image convertedImage = convertCameraImage(image);
+    final img.Image? convertedImage = convertCameraImage(image);
+    if (convertedImage == null) {
+      print("Failed to convert image");
+      return;
+    }
 
     // Apply Histogram Equalization
-    img.equalize(convertedImage);
+    img.histogramEqualize(convertedImage);
 
     // Extract the HSL-S channel
-    final img.Image hslImage = img.hslChannel(convertedImage, channel: img.Channel.saturation);
-
-    // Apply Temporal Smoothing (if implemented)
-    // Example: temporalSmoothing(hslImage);
+    final img.Image hslImage = img.copyRotate(convertedImage); // Create a copy
+    img.convertColorSpace(hslImage, img.ColorSpace.hsl);
+    final img.Image saturationChannel = img.extractChannel(hslImage, img.Channel.saturation);
 
     // Display or further process the resulting image
     print("Image processed successfully");
   }
 
-  img.Image convertCameraImage(CameraImage image) {
-    // Conversion logic
-    return img.Image.fromBytes(
-      image.width,
-      image.height,
-      image.planes[0].bytes,
-      format: img.Format.bgra,
-    );
+  img.Image? convertCameraImage(CameraImage image) {
+    try {
+      if (image.format.group == ImageFormatGroup.yuv420) {
+        return img.Image.fromBytes(
+          width: image.width,
+          height: image.height,
+          bytes: image.planes[0].bytes,
+          format: img.Format.uint8,
+        );
+      } else if (image.format.group == ImageFormatGroup.bgra8888) {
+        return img.Image.fromBytes(
+          width: image.width,
+          height: image.height,
+          bytes: image.planes[0].bytes,
+          format: img.Format.uint8,
+        );
+      }
+    } catch (e) {
+      print("Error converting image: $e");
+    }
+    return null;
   }
 
   @override
@@ -90,6 +106,7 @@ class _CameraScreenState extends State<CameraScreen> {
             await _initializeControllerFuture;
             final image = await _controller.takePicture();
             // Process the image using the _processImage function
+            // Note: You'll need to convert XFile to CameraImage to use _processImage
           } catch (e) {
             print(e);
           }
