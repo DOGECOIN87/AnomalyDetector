@@ -50,6 +50,26 @@ test('colour-space: V channel of HSV equals max(R,G,B)', async () => {
   for (let i = 0; i < img.data.length; i += 4) assert.ok(Math.abs(r.image.data[i] - Math.max(img.data[i], img.data[i + 1], img.data[i + 2])) <= 1);
 });
 
+test('extract-channel: every channel of every space, exact native mapping and stretches', async () => {
+  const img = testImage(31, 17);
+  const def = AD.filters.get('extract-channel');
+  const all = def.params.find(p => p.id === 'channel').options;
+  assert.equal(all.length, Object.values(AD.channels.SPACES).reduce((n, s) => n + s.comps.length, 0));
+  for (const { value } of all) for (const stretch of ['none', 'minmax', 'p01', 'p1']) {
+    const r = await run('extract-channel', img, { channel: value, stretch });
+    for (const v of Object.values(r.readout)) assert.ok(!/NaN|Infinity/.test(String(v)), `${value}/${stretch}: ${v}`);
+  }
+  // RGB · G with no stretch is exactly the green channel
+  const g = (await run('extract-channel', img, { channel: 'rgb.1', stretch: 'none' })).image;
+  for (let i = 0; i < img.data.length; i += 4) assert.equal(g.data[i], img.data[i + 1]);
+  // min-max stretch reaches 0 and 255
+  const s = (await run('extract-channel', img, { channel: 'lab.1', stretch: 'minmax' })).image;
+  let mn = 255, mx = 0; for (let i = 0; i < s.data.length; i += 4) { mn = Math.min(mn, s.data[i]); mx = Math.max(mx, s.data[i]); }
+  assert.equal(mn, 0); assert.equal(mx, 255);
+  // CMYK K of black is 1 -> 255
+  assert.equal(pixel((await run('extract-channel', solid(3, 3, [0, 0, 0]), { channel: 'cmyk.3' })).image, 1, 1)[0], 255);
+});
+
 test('channel mixer identity and swap', async () => {
   const img = testImage(16, 9);
   assert.deepEqual((await run('channel-mixer', img, { preset: 'identity' })).image.data, img.data);
@@ -110,7 +130,7 @@ test('greyscale methods and channel difference', async () => {
 });
 
 test('tiny images', async () => {
-  for (const id of ['color-space', 'channel-mixer', 'swap-channels', 'split-channels', 'false-color', 'decorrelation-stretch', 'grayscale', 'channel-difference']) {
+  for (const id of ['extract-channel', 'color-space', 'channel-mixer', 'swap-channels', 'split-channels', 'false-color', 'decorrelation-stretch', 'grayscale', 'channel-difference']) {
     for (const [w, h] of [[1, 1], [2, 3]]) await run(id, testImage(w, h));
   }
 });

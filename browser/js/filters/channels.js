@@ -192,8 +192,45 @@
   const fmt = v => (Math.abs(v) >= 100 ? v.toFixed(1) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toFixed(4));
 
   // ---------------------------------------------------------------- filters
+  // Robust display range: min-max, or percentiles of a subsample (ignores a few outliers).
+  function displayRange(plane, mode, comp) {
+    if (mode === 'none') return [comp[1], comp[2]];
+    if (mode === 'minmax') { const st = stats(plane); return [st.min, st.max]; }
+    const step = Math.max(1, Math.floor(plane.length / 100000)), sample = [];
+    for (let i = 0; i < plane.length; i += step) sample.push(plane[i]);
+    sample.sort((a, b) => a - b);
+    const q = mode === 'p1' ? 0.01 : 0.001, lo = sample[Math.floor(q * (sample.length - 1))], hi = sample[Math.ceil((1 - q) * (sample.length - 1))];
+    return hi > lo ? [lo, hi] : [comp[1], comp[2]];
+  }
+
   AD.registerFilter({
-    id: 'color-space', name: 'Colour Space / Extract Channel', category: 'Channels',
+    id: 'extract-channel', name: 'Extract Channel', category: 'Channels',
+    description: 'Show a single channel from any colour space as a greyscale image (or in false colour), with its statistics in the channel\'s own units.',
+    keywords: ['extract', 'channel', 'component', 'separate', 'red', 'green', 'blue', 'hue', 'saturation', 'value', 'luma', 'chroma', 'cb', 'cr', 'cyan', 'magenta', 'yellow', 'black', 'lab', 'a*', 'b*'],
+    testSample: 'saturation-patches',
+    params: [
+      { id: 'channel', label: 'Channel', type: 'select', default: 'hsv.1', options: ALL_CHANNELS },
+      { id: 'stretch', label: 'Contrast stretch', type: 'select', default: 'none', options: [
+        { value: 'none', label: 'None (native range)' }, { value: 'minmax', label: 'Min – max' },
+        { value: 'p01', label: 'Robust (0.1 % – 99.9 %)' }, { value: 'p1', label: 'Strong (1 % – 99 %)' }] },
+      { id: 'invert', label: 'Invert', type: 'bool', default: false },
+      { id: 'lut', label: 'False colour', type: 'select', default: 'none', options: LUT_OPTIONS },
+    ],
+    apply(input, p) {
+      const [space, idx] = String(p.channel).split('.'), S = SPACES[space] || SPACES.rgb;
+      const ci = Math.min(S.comps.length - 1, parseInt(idx, 10) || 0), c = S.comps[ci];
+      const plane = CH.convert(input, space in SPACES ? space : 'rgb').planes[ci], st = stats(plane);
+      const [lo, hi] = displayRange(plane, p.stretch, c);
+      const lut = p.lut && p.lut !== 'none' ? getLut(p.lut) : null;
+      return {
+        image: paint(toIndex(plane, lo, hi, p.invert), input.width, input.height, lut),
+        readout: { Channel: `${S.label} · ${c[0]}`, Mean: fmt(st.mean), Min: fmt(st.min), Max: fmt(st.max), 'Shown range': `${fmt(lo)} … ${fmt(hi)}${c[3] ? ' (circular)' : ''}`, 'Native range': `${fmt(c[1])} … ${fmt(c[2])}` },
+      };
+    },
+  });
+
+  AD.registerFilter({
+    id: 'color-space', name: 'Colour Space', category: 'Channels',
     description: 'Convert to another colour space and show all of its components, or one component as an image (optionally normalised or false-coloured).',
     keywords: ['hsv', 'hsl', 'hsi', 'lab', 'lch', 'luv', 'xyz', 'ycbcr', 'yuv', 'yiq', 'cmyk', 'cmy', 'ohta', 'chromaticity', 'channel', 'component', 'hue', 'saturation'],
     testSample: 'plate',
