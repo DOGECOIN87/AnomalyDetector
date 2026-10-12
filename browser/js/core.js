@@ -1246,6 +1246,216 @@ ${thumb ? `<h2>Result</h2>${thumb}` : ''}
   }
   AD.loadSample = id => { const s = AD.samples.find(x => x.id === id); return s ? loadSample(s) : Promise.reject(new Error('no sample ' + id)); };
 
+  // ---------------------------------------------------------------- programmatic control (used by the assistant)
+  // Everything validates and coerces its input, and throws an Error with a message an AI or a person can act on.
+  const stepRef = ref => {
+    if (typeof ref === 'number' || /^\d+$/.test(String(ref))) {
+      const i = Number(ref) - 1;
+      if (i < 0 || i >= S.chain.length) throw new Error(`there is no step ${ref}; the chain has ${S.chain.length} step(s)`);
+      return S.chain[i];
+    }
+    const st = S.chain.find(x => x.uid === ref);
+    if (!st) throw new Error(`unknown step "${ref}"; refer to steps by their number (1 = top)`);
+    return st;
+  };
+
+  // Output size of step k (k = -1: source), from the last render that computed it.
+  function outputSize(k) {
+    for (let i = k; i >= 0; i--) {
+      const st = S.stepStats.get(S.chain[i].uid);
+      if (S.chain[i].enabled && st && st.w) return { width: st.w, height: st.h };
+      if (S.chain[i].enabled && !(st && st.w)) break;
+    }
+    return S.source ? { width: S.source.width, height: S.source.height } : { width: 640, height: 480 };
+  }
+
+  function coerceParams(def, patch, k) {
+    if (!patch || typeof patch !== 'object') return {};
+    const out = {}, warnings = [];
+    for (const [key, raw] of Object.entries(patch)) {
+      const p = def.params.find(q => q.id === key);
+      if (!p) throw new Error(`${def.name} has no parameter "${key}"; valid: ${def.params.map(q => q.id).join(', ')}`);
+      let v = raw;
+      if (p.type === 'range' || p.type === 'number') {
+        v = Number(v);
+        if (!Number.isFinite(v)) throw new Error(`${def.name} › ${key} must be a number`);
+        const max = p.max === 'lastFrame' ? frameCountAt(k - 1) - 1 : p.max;
+        if (typeof p.min === 'number' && v < p.min) { warnings.push(`${key} raised to its minimum ${p.min}`); v = p.min; }
+        if (typeof max === 'number' && v > max) { warnings.push(`${key} lowered to its maximum ${max}`); v = max; }
+      } else if (p.type === 'select') {
+        const o = p.options.find(o => String(o.value) === String(v)) || p.options.find(o => String(o.label).toLowerCase() === String(v).toLowerCase());
+        if (!o) throw new Error(`${def.name} › ${key} must be one of: ${p.options.map(o => o.value).join(', ')}`);
+        v = o.value;
+      } else if (p.type === 'bool') v = v === true || v === 'true' || v === 1;
+      else if (p.type === 'color') { if (!/^#[0-9a-f]{6}$/i.test(String(v))) throw new Error(`${def.name} › ${key} must be a colour like #ff8800`); }
+      else if (p.type === 'text') v = String(v);
+      else if (p.type === 'points') {
+        if (!Array.isArray(v)) throw new Error(`${def.name} › ${key} must be an array of {x, y} points`);
+        v = v.map(q => ({ x: Number(q.x), y: Number(q.y) }));
+        if (v.some(q => !Number.isFinite(q.x) || !Number.isFinite(q.y))) throw new Error(`${def.name} › ${key}: every point needs numeric x and y`);
+        const need = p.count, mn = p.min ?? need, mx = p.max ?? need;
+        if (mn != null && v.length < mn) throw new Error(`${def.name} › ${key} needs at least ${mn} points`);
+        if (mx != null && v.length > mx) throw new Error(`${def.name} › ${key} takes at most ${mx} points`);
+      } else if (p.type === 'rect') {
+        v = { x: Number(v && v.x), y: Number(v && v.y), w: Number(v && v.w), h: Number(v && v.h) };
+        if (Object.values(v).some(n => !Number.isFinite(n)) || v.w <= 0 || v.h <= 0) throw new Error(`${def.name} › ${key} must be {x, y, w, h} with positive w and h`);
+      }
+      out[key] = v;
+    }
+    return { params: out, warnings };
+  }
+
+  const describeStep = (st, i) => {
+    const def = AD.filters.get(st.filterId), stats = S.stepStats.get(st.uid) || {};
+    const inSize = outputSize(i - 1);
+    return { step: i + 1, filter: st.filterId, name: def ? def.name : st.filterId, enabled: st.enabled, params: st.params,
+      inputSize: `${inSize.width}x${inSize.height}`, ...(stats.error ? { error: stats.error } : {}), ...(stats.readout ? { readout: stats.readout } : {}) };
+  };
+
+  // Simple, objective numbers about an image, so an AI can check the effect of a change without seeing it.
+  function imageStats(img) {
+    const d = img.data, n = img.width * img.height, step = Math.max(1, Math.floor(n / 200000));
+    let s = 0, s2 = 0, lo = 0, hi = 0, grad = 0, m = 0;
+    for (let j = 0; j < n; j += step) {
+      const i = j * 4, y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      s += y; s2 += y * y; m++;
+      if (y <= 2) lo++; if (y >= 253) hi++;
+      if (j + 1 < n && (j + 1) % img.width) { const k2 = i + 4; grad += Math.abs(y - (0.299 * d[k2] + 0.587 * d[k2 + 1] + 0.114 * d[k2 + 2])); }
+    }
+    const mean = s / m;
+    return { size: `${img.width}x${img.height}`, meanBrightness: +mean.toFixed(1), contrast: +Math.sqrt(Math.max(0, s2 / m - mean * mean)).toFixed(1),
+      clippedBlack: `${(lo / m * 100).toFixed(2)}%`, clippedWhite: `${(hi / m * 100).toFixed(2)}%`, edgeStrength: +(grad / m).toFixed(2) };
+  }
+
+  const undoStack = [];
+  AD.api = {
+    state() {
+      const k = displayK();
+      return {
+        source: S.source ? { name: S.source.name, kind: S.source.kind, size: `${S.source.width}x${S.source.height}`, frames: S.source.frameCount, fps: S.source.fps, userFile: !S.source.sample } : null,
+        frame: S.frame + 1, frameCount: frameCountAt(S.chain.length - 1), showing: S.show, compare: S.compare,
+        selectedStep: selIndex() >= 0 ? selIndex() + 1 : null,
+        chain: S.chain.map(describeStep),
+        resultSize: (({ width, height }) => `${width}x${height}`)(outputSize(S.chain.length - 1)),
+        viewer: displayLabel(k),
+      };
+    },
+    // One line per filter: id, name, category, parameters with types/ranges/options, actions.
+    catalog() {
+      const lines = [];
+      for (const cat of AD.CATEGORIES) for (const d of [...AD.filters.values()].filter(x => x.category === cat)) {
+        const ps = d.params.map(p => {
+          if (p.type === 'range' || p.type === 'number') return `${p.id} ${p.min ?? ''}..${p.max === 'lastFrame' ? 'lastFrame' : (p.max ?? '')}${p.unit ? ' ' + p.unit : ''}`;
+          if (p.type === 'select') return `${p.id} [${p.options.map(o => o.value).join('|')}]`;
+          if (p.type === 'points') return `${p.id} points(${p.count ?? `${p.min ?? 0}-${p.max ?? '∞'}`}${p.labels ? ' ' + p.labels.join(',') : ''}${p.space === 'output' ? ', on output' : ''})`;
+          return `${p.id} ${p.type}`;
+        });
+        lines.push(`${d.id} — ${d.name} (${cat}): ${d.description || ''} | params: ${ps.join('; ') || 'none'}${d.actions.length ? ` | actions: ${d.actions.map(a => a.id).join(', ')}` : ''}`);
+      }
+      return lines.join('\n');
+    },
+    samples: () => AD.samples.map(s => ({ id: s.id, name: s.name, kind: s.category })),
+
+    snapshot: () => ({ chain: JSON.parse(JSON.stringify(S.chain)), sel: S.sel, show: S.show, compare: S.compare, frame: S.frame }),
+    restore(snap) {
+      S.chain = JSON.parse(JSON.stringify(snap.chain)); S.sel = snap.sel; S.compare = snap.compare; S.frame = snap.frame; S.editParam = null;
+      $('compare').setAttribute('aria-pressed', String(S.compare));
+      setShow(snap.show); chainChanged(); renderInspector();
+    },
+    pushUndo(label) { undoStack.push({ label, snap: AD.api.snapshot() }); if (undoStack.length > 30) undoStack.shift(); },
+    undo() {
+      // skip entries that match the current state (a request that changed nothing)
+      const now = JSON.stringify(AD.api.snapshot().chain);
+      while (undoStack.length && JSON.stringify(undoStack[undoStack.length - 1].snap.chain) === now) undoStack.pop();
+      const u = undoStack.pop();
+      if (!u) throw new Error('nothing to undo');
+      AD.api.restore(u.snap); log(`Undid: ${u.label}`);
+      return u.label;
+    },
+    canUndo: () => undoStack.length > 0,
+
+    async add(filterId, params = {}, position = null) {
+      const def = AD.filters.get(String(filterId));
+      if (!def) throw new Error(`unknown filter "${filterId}"`);
+      const at = position == null ? S.chain.length : Math.max(0, Math.min(S.chain.length, Number(position) - 1));
+      const dims = outputSize(at - 1), info = { frameCount: frameCountAt(at - 1), fps: S.source ? S.source.fps : 25 };
+      const { params: p, warnings } = coerceParams(def, params, at);
+      const step = { uid: uid(), filterId: def.id, enabled: true, params: { ...AD.defaultParams(def, dims, info), ...p } };
+      S.chain.splice(at, 0, step); S.sel = step.uid;
+      log(`Assistant added ${def.name} as step ${at + 1}`);
+      chainChanged(); renderInspector();
+      return { step: at + 1, filter: def.id, params: step.params, ...(warnings.length ? { warnings } : {}) };
+    },
+    set(ref, params) {
+      const st = stepRef(ref), k = S.chain.indexOf(st), def = AD.filters.get(st.filterId);
+      const { params: p, warnings } = coerceParams(def, params, k);
+      st.params = { ...st.params, ...p };
+      log(`Assistant set ${def.name} › ${Object.entries(p).map(([a, b]) => `${a} = ${fmtValue(b)}`).join(', ')}`);
+      chainChanged(); if (S.sel === st.uid) renderInspector();
+      return { step: k + 1, params: st.params, ...(warnings.length ? { warnings } : {}) };
+    },
+    remove(ref) { const st = stepRef(ref), k = S.chain.indexOf(st); removeStep(st.uid); return { removed: k + 1 }; },
+    move(ref, to) {
+      const st = stepRef(ref), from = S.chain.indexOf(st), j = Math.max(0, Math.min(S.chain.length - 1, Number(to) - 1));
+      S.chain.splice(from, 1); S.chain.splice(j, 0, st); chainChanged();
+      return { moved: from + 1, to: j + 1 };
+    },
+    enable(ref, on) { const st = stepRef(ref); st.enabled = !!on; chainChanged(); return { step: S.chain.indexOf(st) + 1, enabled: st.enabled }; },
+    clear() { const n = S.chain.length; S.chain = []; S.sel = null; S.editParam = null; chainChanged(); renderInspector(); return { removed: n }; },
+    select(ref) { const st = stepRef(ref); selectStep(st.uid); return { selected: S.chain.indexOf(st) + 1 }; },
+    show(mode) { if (!['result', 'step', 'original'].includes(mode)) throw new Error('show must be result, step or original'); setShow(mode); return { showing: mode }; },
+    compare(on) { S.compare = !!on; $('compare').setAttribute('aria-pressed', String(S.compare)); requestRender(); return { compare: S.compare }; },
+    frame(n) { const c = frameCountAt(displayK()); gotoFrame(Math.max(1, Math.min(c, Math.round(Number(n)))) - 1); return { frame: S.frame + 1, of: c }; },
+    async action(ref, actionId) {
+      const st = stepRef(ref), def = AD.filters.get(st.filterId), a = def.actions.find(x => x.id === actionId);
+      if (!a) throw new Error(`${def.name} has no action "${actionId}"${def.actions.length ? `; available: ${def.actions.map(x => x.id).join(', ')}` : ''}`);
+      const patch = await backend.action(st.uid, a.id, S.frame);
+      st.params = { ...st.params, ...patch }; chainChanged(); renderInspector();
+      log(`Assistant ran ${def.name} › ${a.label}`);
+      return { step: S.chain.indexOf(st) + 1, changed: patch };
+    },
+    async loadSample(id) {
+      const s = AD.samples.find(x => x.id === id);
+      if (!s) throw new Error(`unknown sample "${id}"; available: ${AD.samples.map(x => x.id).join(', ')}`);
+      await loadSample(s); return { loaded: s.name };
+    },
+    // Render the result (or step k) at full resolution and summarise it.
+    async inspect(ref = null) {
+      if (!S.source) throw new Error('no image is open');
+      const k = ref == null ? S.chain.length - 1 : S.chain.indexOf(stepRef(ref));
+      const r = await backend.render(k, Math.min(S.frame, frameCountAt(k) - 1), 1, 'assistant');
+      if (!r) throw new Error('render was cancelled');
+      for (const st of r.steps || []) S.stepStats.set(st.uid, st);
+      renderChainStats();
+      const errors = (r.steps || []).filter(x => x.error).map(x => `step ${S.chain.findIndex(c => c.uid === x.uid) + 1}: ${x.error}`);
+      return { of: k < 0 ? 'original' : `step ${k + 1}`, ...imageStats(r.image), ...(r.readout ? { readout: r.readout } : {}), ...(errors.length ? { errors } : {}) };
+    },
+    // JPEG of what a new filter added at the end would receive (the current result), longest side <= maxSide.
+    async snapshotImage(maxSide = 1024) {
+      if (!S.source) return null;
+      const k = S.chain.length - 1, r = await backend.render(k, Math.min(S.frame, frameCountAt(k) - 1), 1, 'assistant');
+      if (!r) return null;
+      const s = Math.min(1, maxSide / Math.max(r.image.width, r.image.height));
+      const full = el('canvas', { width: r.image.width, height: r.image.height }); full.getContext('2d').putImageData(r.image, 0, 0);
+      const c = el('canvas', { width: Math.max(1, Math.round(r.image.width * s)), height: Math.max(1, Math.round(r.image.height * s)) });
+      const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(full, 0, 0, c.width, c.height);
+      const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.9));
+      return { blob, width: r.image.width, height: r.image.height, sentWidth: c.width, sentHeight: c.height, scale: s };
+    },
+    async save(kind) {
+      const si = selIndex();
+      if (kind === 'frame') await saveFrame(S.chain.length - 1, 'result');
+      else if (kind === 'step') await saveFrame(si >= 0 ? si : S.chain.length - 1, si >= 0 ? (AD.filters.get(S.chain[si].filterId) || {}).name : 'result');
+      else if (kind === 'frames') await saveZip();
+      else if (kind === 'video') await saveVideo();
+      else if (kind === 'project') await saveFile(fileName('json').replace(/\.json$/, '_project.json'), projectJSON());
+      else if (kind === 'report') await saveReport();
+      else throw new Error('save kind must be frame, step, frames, video, project or report');
+      return { offered: kind };
+    },
+    log,
+  };
+
   // ---------------------------------------------------------------- wiring
   AD.start = async function start() {
     readColors();

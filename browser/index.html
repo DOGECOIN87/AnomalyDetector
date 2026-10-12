@@ -61,7 +61,7 @@ input[type="number"], input[type="text"], input[type="search"], select { backgro
 .drop small { display: block; color: var(--muted); font-size: .78rem; }
 .srcinfo { margin-left: auto; color: var(--muted); font-family: var(--f-mono); font-size: .76rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
 
-.work { min-height: 0; display: grid; grid-template-columns: 228px minmax(0, 1fr) 280px; }
+.work { min-height: 0; display: grid; grid-template-columns: 228px minmax(0, 1fr) 300px; }
 .dock { min-height: 0; overflow: auto; background: var(--panel); display: flex; flex-direction: column; }
 .dock.left { border-right: 1px solid var(--line); }
 .dock.right { border-left: 1px solid var(--line); }
@@ -132,6 +132,29 @@ dl.readout dd { margin: 0; font-family: var(--f-mono); font-variant-numeric: tab
 .log { border-left: 1px solid var(--line); padding: 6px 12px; overflow: auto; max-height: 92px; font-family: var(--f-mono); font-size: .72rem; color: var(--muted); }
 .log p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log p.e { color: var(--hit); } .log p.w { color: var(--warn); }
+
+/* Assistant */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.mode { font-family: var(--f-mono); font-size: .66rem; letter-spacing: .04em; text-transform: none; color: var(--accent); }
+button.mini { padding: 1px 6px; font-size: .72rem; text-transform: none; letter-spacing: 0; }
+.chat { display: grid; gap: 6px; max-height: 260px; overflow: auto; align-content: start; }
+.chat p { margin: 0; font-size: .84rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.chat p.me { justify-self: end; max-width: 88%; background: var(--accent-soft); border-radius: 8px 8px 2px 8px; padding: 5px 9px; }
+.chat p.ai { max-width: 96%; }
+.chat p.tool { font-family: var(--f-mono); font-size: .72rem; color: var(--muted); }
+.chat p.note { font-size: .78rem; color: var(--muted); }
+.chat p.err { color: var(--hit); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chips button { font-size: .76rem; padding: 3px 8px; border-radius: 12px; }
+.chatform { display: grid; gap: 6px; }
+.chatform textarea { width: 100%; resize: vertical; min-height: 2.6em; background: var(--raised); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font: inherit; color: inherit; }
+.chatopts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .78rem; color: var(--muted); }
+.chatopts label { display: flex; gap: 5px; align-items: center; }
+.chatform .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chatstatus { font-size: .76rem; color: var(--muted); }
+.confirm { border: 1px solid var(--warn); border-radius: 6px; padding: 8px; display: grid; gap: 6px; font-size: .84rem; }
+.confirm p { margin: 0; }
+.confirm .row { display: flex; gap: 6px; }
 
 dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--fg); padding: 16px; max-width: min(460px, 92vw); }
 dialog::backdrop { background: rgba(0,0,0,.4); }
@@ -231,7 +254,29 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
       </div>
     </main>
 
-    <aside class="dock right" aria-label="History and parameters">
+    <aside class="dock right" aria-label="Assistant, history and parameters">
+      <section class="pane" id="assistant" aria-label="Assistant">
+        <h2>Assistant <span><span id="chat-mode" class="mode">Commands only</span> <button type="button" id="chat-clear" class="mini" title="Start a new conversation">New</button></span></h2>
+        <div class="chat" id="chat-log" aria-live="polite"></div>
+        <div class="confirm" id="chat-confirm" hidden>
+          <p id="chat-confirm-q"></p>
+          <div class="row"><button type="button" id="chat-allow" class="on">Allow</button><button type="button" id="chat-deny">Keep my file</button></div>
+        </div>
+        <form id="chat-form" class="chatform">
+          <label for="chat-input" class="sr">Tell the app what to do</label>
+          <textarea id="chat-input" rows="2" placeholder="Tell the app what to do"></textarea>
+          <div class="chatopts">
+            <label id="chat-see-wrap" hidden><input type="checkbox" id="chat-see" checked> Let Claude see the image</label>
+            <label id="chat-think-wrap" hidden><input type="checkbox" id="chat-think"> Think harder (slower)</label>
+          </div>
+          <div class="row">
+            <button type="submit" id="chat-send" class="on">Send</button>
+            <button type="button" id="chat-stop" hidden>Stop</button>
+            <button type="button" id="chat-undo" disabled title="Revert the changes of the last request">Undo last</button>
+            <span class="chatstatus" id="chat-status"></span>
+          </div>
+        </form>
+      </section>
       <section class="pane">
         <h2>History <span id="chain-count"></span></h2>
         <ul class="chain" id="chain"></ul>
@@ -289,6 +334,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1
 <script src="js/registry.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/core.js"></script>
+<script src="js/assistant.js"></script>
 <!-- video I/O (WebCodecs decode/encode); third-party container libraries go here, before js/io/video.js -->
 <script src="js/io/video.js"></script>
 <script src="js/samples.js"></script>

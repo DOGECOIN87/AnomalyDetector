@@ -184,7 +184,7 @@
       if (!r || !(r.image instanceof ImageData)) {
         return this.fail(step, 'Filter returned no image', input || (await ctx.input(f)));
       }
-      this.stats.set(step.uid, { ms: Date.now() - t0, error: null, readout: r.readout || null });
+      this.stats.set(step.uid, { ms: Date.now() - t0, error: null, readout: r.readout || null, w: Math.round(r.image.width / s), h: Math.round(r.image.height / s) });
       this.loggedErrors.delete(step.uid);
       this.cache.set(key, r, bytesOf(r));
       return r;
