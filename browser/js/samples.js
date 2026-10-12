@@ -90,8 +90,13 @@
   reg({ id: 'motion-blur', name: 'Motion-blurred car', category: 'Deblurring', description: '21 px blur at 8°',
     make: async () => addNoise(motionBlur(scene(800, 500, { plate: 'MX 482 KT' }), 21, 8), 1.5) });
 
-  reg({ id: 'defocus', name: 'Out-of-focus car', category: 'Deblurring', description: 'Gaussian defocus, σ 3 px',
-    make: async () => addNoise(blur(scene(800, 500, { plate: 'DF 905 LQ' }), 3), 1.5) });
+  reg({ id: 'defocus', name: 'Out-of-focus car', category: 'Deblurring', description: 'lens defocus, disk radius 4 px',
+    make: async () => {
+      const sharp = scene(800, 500, { plate: 'DF 905 LQ' });
+      if (!AD.deblur) return addNoise(blur(sharp, 2.5), 1.5);
+      const psf = AD.deblur.psfDisk(4);
+      return addNoise(AD.img.mapRGB(sharp, (pl, w, h) => AD.deblur.convolve(pl, w, h, psf)), 1.5);
+    } });
 
   reg({ id: 'periodic', name: 'Periodic interference', category: 'Denoise', description: 'two sinusoidal patterns over the scene',
     make: async () => {
