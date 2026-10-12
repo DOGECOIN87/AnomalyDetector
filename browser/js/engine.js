@@ -50,6 +50,7 @@
       this.stats = new Map();      // uid -> { ms, error, readout }
       this.loggedErrors = new Set();
       this.gpuFailed = new Set();
+      this.pathTimes = new Map();  // filter id -> { gpu, cpu } ms per megapixel
       this.source = null;
       this.chain = [];
       this.sigs = [];
@@ -195,20 +196,33 @@
       return { image, error: message };
     }
 
+    // GPU or CPU? Each path is timed (ms per megapixel) the first time it runs on a decent-sized image, and the
+    // faster one is used from then on. Software WebGL (no GPU) is often slower than the CPU workers.
     async invoke(def, input, params, ctx) {
-      if (def.gpu && !this.gpuFailed.has(def.id) && AD.gpu && AD.gpu.available) {
-        try { return await def.gpu(input, params, ctx); }
-        catch (e) {
+      const mp = input ? input.width * input.height / 1e6 : 0;
+      const t = this.pathTimes.get(def.id) || {};
+      const gpuOk = def.gpu && !this.gpuFailed.has(def.id) && AD.gpu && AD.gpu.available;
+      const useGpu = gpuOk && (t.gpu == null || t.cpu == null ? t.gpu == null : t.gpu <= t.cpu);
+      if (useGpu) {
+        try {
+          const t0 = Date.now(), r = await def.gpu(input, params, ctx);
+          if (mp > 0.05) this.pathTimes.set(def.id, { ...t, gpu: (Date.now() - t0) / mp });
+          return r;
+        } catch (e) {
           if (e instanceof CancelError) throw e;
           this.gpuFailed.add(def.id);
           this.onLog(`${def.name}: GPU path failed (${e.message}); using CPU`, 'w');
         }
       }
+      const t0 = Date.now();
+      let r;
       if (def.margin && input && this.pool && this.pool.size > 1 && input.width * input.height >= 200000) {
         const m = Math.ceil(def.margin(params, ctx));
-        if (Number.isFinite(m) && m >= 0) return this.runStrips(def, input, params, ctx, m);
+        if (Number.isFinite(m) && m >= 0) r = await this.runStrips(def, input, params, ctx, m);
       }
-      return def.apply(input, params, ctx);
+      if (r === undefined) r = await def.apply(input, params, ctx);
+      if (gpuOk && mp > 0.05) this.pathTimes.set(def.id, { ...(this.pathTimes.get(def.id) || {}), cpu: (Date.now() - t0) / mp });
+      return r;
     }
 
     // Split rows into strips with `m` rows of overlap, run them on the pool, stitch the centres back.

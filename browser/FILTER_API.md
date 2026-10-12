@@ -29,12 +29,14 @@ AD.registerFilter({
   // Required. CPU implementation. May be async. Must not mutate `input`.
   apply(input, p, ctx) { return outImageData; },
 
-  // Optional. GPU implementation, used instead of `apply` when AD.gpu.available is true.
-  // Must produce the same result as `apply` (within 8-bit rounding).
+  // Optional. GPU implementation. When WebGL2 is available the engine times both paths once per filter and
+  // keeps using the faster one. Must produce the same result as `apply` (within 8-bit rounding).
   gpu(input, p, ctx) { return outImageData; },
 
   // Optional. Local operator: output pixel (x, y) depends only on input within `margin` pixels of it,
-  // output size equals input size, and the filter does not read other frames.
+  // output size equals input size, the filter does not read other frames, and it returns a plain ImageData
+  // (strip workers return pixels only, so readout/overlay would be lost — don't declare margin if you return them).
+  // Return NaN to disable striping for particular parameter values.
   // The engine then splits large images into horizontal strips (with `margin` overlap) across a worker pool.
   margin: (p, ctx) => 2 * p.radius,
 
