@@ -71,6 +71,9 @@
     return AD.img.fromPlanes(out);
   }
 
+  // Shared with filter modules that register their own samples.
+  AD.sampleTools = { scene, addNoise, blur, motionBlur, gammaDark, rng, gauss };
+
   const reg = (s) => AD.registerSample(s);
 
   reg({ id: 'plate', name: 'Dark, blurred licence plate', category: 'Adjust', description: 'underexposed, defocused, noisy, at an angle',
