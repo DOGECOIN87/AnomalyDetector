@@ -1,0 +1,301 @@
+<title>Anomaly Detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: docked workstation — Filters + Tools left, viewer centre, History + parameters right, Player + Log along the bottom.
+   Below 1000px the docks stack under the viewer. */
+:root {
+  --bg: #e9ecea;
+  --panel: #f6f7f6;
+  --raised: #ffffff;
+  --line: #d0d6d3;
+  --fg: #1a2220;
+  --muted: #5a6662;
+  --accent: #0f7a6c;
+  --accent-ink: #ffffff;
+  --accent-soft: #d5ebe7;
+  --hit: #d9431c;
+  --warn: #9a6a00;
+  --view-bg: #1c2321;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101514; --panel: #171e1c; --raised: #1e2724; --line: #2b3532; --fg: #e1e8e5; --muted: #93a09b;
+    --accent: #3cc2ae; --accent-ink: #06201b; --accent-soft: #173a34; --hit: #ff7a52; --warn: #e0b04a; --view-bg: #0a0e0d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101514; --panel: #171e1c; --raised: #1e2724; --line: #2b3532; --fg: #e1e8e5; --muted: #93a09b;
+  --accent: #3cc2ae; --accent-ink: #06201b; --accent-soft: #173a34; --hit: #ff7a52; --warn: #e0b04a; --view-bg: #0a0e0d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 13px; line-height: 1.45; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--raised); border-radius: 4px; padding: 5px 9px; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.on, button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type="range"] { accent-color: var(--accent); width: 100%; }
+input[type="checkbox"] { accent-color: var(--accent); }
+input[type="number"], input[type="text"], input[type="search"], select { background: var(--raised); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; min-width: 0; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand { font-family: var(--f-display); font-weight: 600; font-size: 1.15rem; letter-spacing: .01em; margin: 0 8px 0 0; white-space: nowrap; }
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; padding: 5px 9px; border-radius: 4px; border: 1px solid transparent; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu[open] > summary, .menu > summary:hover { border-color: var(--line); background: var(--raised); }
+.menu .drop { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 240px; max-width: min(340px, 90vw); background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 6px; display: grid; gap: 2px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.drop button, .drop label.item { text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 4px; display: block; width: 100%; position: relative; cursor: pointer; }
+.drop button:hover:not(:disabled), .drop label.item:hover { background: var(--accent-soft); }
+.drop label.item input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.drop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.drop small { display: block; color: var(--muted); font-size: .78rem; }
+.srcinfo { margin-left: auto; color: var(--muted); font-family: var(--f-mono); font-size: .76rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
+
+.work { min-height: 0; display: grid; grid-template-columns: 228px minmax(0, 1fr) 280px; }
+.dock { min-height: 0; overflow: auto; background: var(--panel); display: flex; flex-direction: column; }
+.dock.left { border-right: 1px solid var(--line); }
+.dock.right { border-left: 1px solid var(--line); }
+.pane { border-bottom: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 8px; min-width: 0; }
+.pane h2 { font-family: var(--f-mono); font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pane.grow { flex: 1; }
+
+/* Filters pane */
+#filter-search { width: 100%; }
+.cat { display: grid; gap: 1px; }
+.cat > summary { cursor: pointer; font-weight: 600; font-size: .82rem; padding: 3px 0; color: var(--fg); }
+.cat button { border: 0; background: none; text-align: left; padding: 4px 8px; border-radius: 3px; font-size: .84rem; }
+.cat button:hover { background: var(--accent-soft); }
+.empty { color: var(--muted); font-size: .82rem; margin: 0; }
+
+/* Tools pane */
+.tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.pixel { font-family: var(--f-mono); font-size: .76rem; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 2.6em; }
+
+/* Viewer */
+.stage { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto 1fr; background: var(--view-bg); }
+.viewbar { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.viewbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+.viewbar .zoomval { font-family: var(--f-mono); font-size: .76rem; min-width: 5ch; text-align: right; color: var(--muted); }
+.viewport { position: relative; min-height: 280px; overflow: hidden; touch-action: none; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.vlabel { position: absolute; top: 8px; font-family: var(--f-mono); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: #e1e8e5; background: rgba(0,0,0,.55); padding: 2px 7px; border-radius: 3px; pointer-events: none; }
+.vlabel.l { left: 8px; } .vlabel.r { right: 8px; }
+.busy { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: transparent; overflow: hidden; pointer-events: none; }
+.busy i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.errbox { position: absolute; left: 12px; right: 12px; bottom: 12px; background: var(--raised); color: var(--hit); border: 1px solid var(--hit); border-radius: 4px; padding: 6px 10px; font-size: .82rem; }
+.drophint { position: absolute; inset: 0; display: grid; place-items: center; color: #93a09b; font-size: .9rem; text-align: center; padding: 16px; pointer-events: none; }
+
+/* History pane */
+.chain { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.chain li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 5px 6px; border-radius: 4px; border: 1px solid transparent; cursor: pointer; }
+.chain li:hover { border-color: var(--line); }
+.chain li.sel { background: var(--accent-soft); border-color: var(--accent); }
+.chain li.src { cursor: default; color: var(--muted); }
+.chain li .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain li .nm small { display: block; color: var(--muted); font-size: .72rem; font-family: var(--f-mono); }
+.chain li.off .nm { text-decoration: line-through; color: var(--muted); }
+.chain li.err .nm small { color: var(--hit); }
+.chain li .ops { display: flex; gap: 2px; }
+.chain li .ops button { padding: 1px 5px; font-size: .78rem; line-height: 1.3; }
+.params { display: grid; gap: 10px; }
+.params .desc { color: var(--muted); margin: 0; font-size: .82rem; }
+.prm { display: grid; gap: 3px; }
+.prm .hd { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.prm .hd output { font-family: var(--f-mono); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.prm .row { display: flex; gap: 6px; align-items: center; }
+.prm .row > * { flex: 1; min-width: 0; }
+.prm .hint { color: var(--muted); font-size: .76rem; }
+.prm.check { display: flex; gap: 8px; align-items: center; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+dl.readout { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+
+/* Player + Log */
+.bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); border-top: 1px solid var(--line); background: var(--panel); }
+.player { display: grid; gap: 6px; padding: 8px 16px; min-width: 0; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.transport .frame { font-family: var(--f-mono); font-size: .78rem; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.transport input[type="range"] { flex: 1 1 200px; }
+.transport input[type="number"] { width: 6ch; }
+.inout { font-family: var(--f-mono); font-size: .72rem; color: var(--muted); }
+.log { border-left: 1px solid var(--line); padding: 6px 12px; overflow: auto; max-height: 92px; font-family: var(--f-mono); font-size: .72rem; color: var(--muted); }
+.log p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log p.e { color: var(--hit); } .log p.w { color: var(--warn); }
+
+dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--fg); padding: 16px; max-width: min(460px, 92vw); }
+dialog::backdrop { background: rgba(0,0,0,.4); }
+dialog h3 { margin: 0 0 10px; font-family: var(--f-display); font-size: 1.1rem; }
+dialog .grid { display: grid; gap: 10px; }
+dialog label { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+@media (max-width: 1000px) {
+  html, body { height: auto; }
+  .app { height: auto; grid-template-rows: auto auto auto; }
+  .work { grid-template-columns: 1fr; }
+  .stage { order: -1; }
+  .viewport { height: 62vh; }
+  .dock { overflow: visible; }
+  .dock.left, .dock.right { border: 0; border-top: 1px solid var(--line); }
+  .bottom { grid-template-columns: 1fr; }
+  .log { border-left: 0; border-top: 1px solid var(--line); }
+  .work { display: flex; flex-direction: column; }
+  .stage { order: 0; } .dock.right { order: 1; } .dock.left { order: 2; }
+  .srcinfo { margin-left: 0; flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app" id="app">
+  <div class="topbar">
+    <p class="brand">Anomaly Detector</p>
+    <details class="menu" id="menu-file">
+      <summary>File</summary>
+      <div class="drop">
+        <label class="item">Open image…<small>JPEG, PNG, BMP, GIF, WebP</small><input id="open-image" type="file" accept="image/*"></label>
+        <label class="item">Open image sequence…<small>Select several images; sorted by name</small><input id="open-seq" type="file" accept="image/*" multiple></label>
+        <label class="item">Open video…<small>MP4, WebM, MOV (what this browser can decode)</small><input id="open-video" type="file" accept="video/*"></label>
+        <hr>
+        <button type="button" data-act="quicksave">Quick save<small>Current frame of the selected filter</small></button>
+        <button type="button" data-act="save-frame">Save result frame…</button>
+        <button type="button" data-act="save-zip">Save result frames (ZIP of PNG)</button>
+        <button type="button" data-act="save-video">Save result video (WebM)</button>
+        <hr>
+        <button type="button" data-act="save-project">Save project (.json)</button>
+        <label class="item">Open project…<input id="open-project" type="file" accept=".json,application/json"></label>
+        <button type="button" data-act="save-report">Save report (.html)</button>
+        <hr>
+        <button type="button" data-act="options">Program options…</button>
+      </div>
+    </details>
+    <details class="menu" id="menu-samples">
+      <summary>Samples</summary>
+      <div class="drop" id="sample-list"></div>
+    </details>
+    <span class="srcinfo" id="srcinfo">No source loaded</span>
+  </div>
+
+  <div class="work">
+    <aside class="dock left" aria-label="Filters and tools">
+      <section class="pane grow">
+        <h2>Filters</h2>
+        <input id="filter-search" type="search" placeholder="Search filters" aria-label="Search filters">
+        <div id="filter-list"></div>
+      </section>
+      <section class="pane">
+        <h2>Tools</h2>
+        <div class="tools" role="group" aria-label="Viewer tool">
+          <button type="button" data-tool="pan" aria-pressed="true">Pan</button>
+          <button type="button" data-tool="zoom" aria-pressed="false">Zoom</button>
+          <button type="button" data-tool="inspect" aria-pressed="false">Inspect</button>
+          <button type="button" data-tool="edit" aria-pressed="false" id="tool-edit" disabled>Edit points</button>
+        </div>
+        <div class="pixel" id="pixel">Move over the image to read pixel values.</div>
+      </section>
+    </aside>
+
+    <main class="stage">
+      <div class="viewbar">
+        <div role="group" aria-label="Show" style="display:flex;gap:4px">
+          <button type="button" data-show="result" aria-pressed="true">Result</button>
+          <button type="button" data-show="step" aria-pressed="false">Selected step</button>
+          <button type="button" data-show="original" aria-pressed="false">Original</button>
+        </div>
+        <button type="button" id="compare" aria-pressed="false" title="Split view: original on the left">Compare</button>
+        <span class="sep"></span>
+        <button type="button" id="fit-image" title="Fit image">Fit</button>
+        <button type="button" id="zoom-1" title="Actual pixels">1:1</button>
+        <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+        <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+        <span class="zoomval" id="zoomval">–</span>
+        <button type="button" id="overlay-toggle" aria-pressed="true" title="Show measurement and tracking overlays">Overlays</button>
+      </div>
+      <div class="viewport" id="viewport">
+        <canvas id="view" aria-label="Image viewer"></canvas>
+        <span class="vlabel l" id="vlabel-l" hidden></span>
+        <span class="vlabel r" id="vlabel-r">–</span>
+        <div class="drophint" id="drophint">Open an image, image sequence or video from the File menu, drop a file here, or pick a sample.</div>
+        <div class="errbox" id="errbox" hidden></div>
+        <div class="busy"><i id="busybar"></i></div>
+      </div>
+    </main>
+
+    <aside class="dock right" aria-label="History and parameters">
+      <section class="pane">
+        <h2>History <span id="chain-count"></span></h2>
+        <ul class="chain" id="chain"></ul>
+      </section>
+      <section class="pane grow" id="inspector">
+        <h2 id="insp-title">Parameters</h2>
+        <div class="params" id="params"><p class="empty">Add a filter from the Filters panel. Each one appears in History and runs on the output of the step above it.</p></div>
+        <dl class="readout" id="readout" hidden></dl>
+      </section>
+    </aside>
+  </div>
+
+  <div class="bottom">
+    <section class="player" aria-label="Player">
+      <div class="transport">
+        <button type="button" id="first" aria-label="First frame">|◀</button>
+        <button type="button" id="prev" aria-label="Previous frame">◀</button>
+        <button type="button" id="play">Play</button>
+        <button type="button" id="next" aria-label="Next frame">▶</button>
+        <button type="button" id="last" aria-label="Last frame">▶|</button>
+        <input type="range" id="seek" min="0" max="0" value="0" aria-label="Frame">
+        <span class="frame" id="framelabel">Frame – / –</span>
+      </div>
+      <div class="transport">
+        <button type="button" id="mark-in">Set in</button>
+        <button type="button" id="mark-out">Set out</button>
+        <span class="inout" id="inout">Range: all frames</span>
+        <label class="inout">fps <input type="number" id="fps" min="1" max="240" step="0.001" value="25"></label>
+      </div>
+    </section>
+    <section class="log" id="log" aria-label="Log" aria-live="polite"></section>
+  </div>
+</div>
+
+<dialog id="options">
+  <h3>Program options</h3>
+  <div class="grid">
+    <label>Project auto-recovery <input type="checkbox" id="opt-autorecover"></label>
+    <label>File authentication (SHA-256 of inputs) <input type="checkbox" id="opt-auth"></label>
+    <label>Default file name <input type="text" id="opt-filename" size="14"></label>
+    <p class="empty" style="margin:0">$in = input name, $ts = timestamp, $fn = frame number, $flt = filter name</p>
+    <label>Image format
+      <select id="opt-format"><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+    <label>Image quality <input type="number" id="opt-quality" min="10" max="100" step="1"></label>
+    <label>Max decoded frame size (px) <input type="number" id="opt-maxdim" min="256" max="8192" step="64"></label>
+    <label>Frame cache (MB) <input type="number" id="opt-cache" min="64" max="4096" step="64"></label>
+  </div>
+  <div class="foot"><button type="button" id="opt-close" class="on">Done</button></div>
+</dialog>
+
+<script src="js/lib/img.js"></script>
+<script src="js/lib/fft.js"></script>
+<script src="js/lib/geom.js"></script>
+<script src="js/core.js"></script>
+<script src="js/samples.js"></script>
+<script src="js/filters/basic.js"></script>
+<script src="js/filters/channels.js"></script>
+<script src="js/filters/adjust.js"></script>
+<script src="js/filters/denoise.js"></script>
+<script src="js/filters/deblur.js"></script>
+<script src="js/filters/fourier.js"></script>
+<script src="js/filters/geometry.js"></script>
+<script src="js/filters/video.js"></script>
+<script src="js/filters/stabilize.js"></script>
+<script src="js/filters/measure.js"></script>
+<script src="js/filters/presentation.js"></script>
+<script>AD.start();</script>
